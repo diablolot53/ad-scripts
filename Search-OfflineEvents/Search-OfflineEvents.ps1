@@ -1,6 +1,6 @@
 <#
 	Offline Event Viewer Search Script
-	Last Update - 03/30/2018
+	Last Update - 04/02/2018
 
 PURPOSE
 	This script can be used to load XML exports from the Security log in the Event Viewer and search through them.
@@ -29,6 +29,7 @@ param (
 )
 
 #FUNCTIONS
+Function ReadXML{
 <#
 NAME
 	ReadXML
@@ -42,7 +43,6 @@ OUTPUT
 TO DO
 	-Add a check to verify the imported XML file contains Event Log data instead of something else
 #>
-Function ReadXML{
 	param ([string]$File)
 
 	If ((Test-Path $File) -eq $True){
@@ -55,13 +55,61 @@ Function ReadXML{
 	Else{Return "XML File Not Found"}
 }
 
+Function FormatResults{
+<#
+NAME
+	FormatResults
+PURPOSE
+	Takes the search results and formats it correctly for output to the console. It will display the following attributes discovered during the search:
+		Username
+		SourceDC
+		SourceWorkstation
+		LogonType
+		TimeGenerated
+INPUT
+	System.Diagnostics.EventLogEntry
+OUTPUT
+	[String]Username
+	[String]SourceDC
+	[String]SourceWorkstation
+	[String]LogonType
+	[DateTime]TimeGenerated
+#>
+	param ($EventIn)
+
+	#Edit the LogonType to make it easier to understand
+	Switch ($EventIn.ReplacementStrings[8]){
+		2 {$EventLogonType = "2-Interactive"}
+		3 {$EventLogonType = "3-Network"}
+		4 {$EventLogonType = "4-Batch"}
+		7 {$EventLogonType = "7-Unlock"}
+		8 {$EventLogonType = "8-NetworkCleartext"}
+		10 {$EventLogonType = "10-RemoteInteractive"}
+		11 {$EventLogonType = "11-CachedInteractive"}
+		default {$EventLogonType = $EventIn.ReplacementStrings[8]}
+	}
+
+	#Format the data and return it
+	$out = New-Object PSObject
+	$out | Add-Member -MemberType NoteProperty -Name "Username" -Value $EventIn.ReplacementStrings[5]
+	$out | Add-Member -MemberType NoteProperty -Name "SourceDC" -Value $EventIn.MachineName
+	$out | Add-Member -MemberType NoteProperty -Name "SourceWorkstation" -Value $EventIn.ReplacementStrings[18]
+	$out | Add-Member -MemberType NoteProperty -Name "LogonType" -Value $EventLogonType
+	$out | Add-Member -MemberType NoteProperty -Name "TimeGenerated" -Value $EventIn.TimeGenerated
+	Return $out
+}
+
 #SCRIPT
 #Cleanup the XMLFiles input
 $XMLFiles = $XMLFiles.Trim("`"")
 $XMLFilesArray = $XMLFiles.Split(",")
 
-#Load the provided XML files
+#Variables
 $i = 1
+$EventData = @()
+$Out = @()
+
+#Import the XML files
 ForEach ($file in $XMLFilesArray){
 	#Display a progress bar to inform the user whats going on
 	Write-Progress -Activity "Loading XML File $file" -Status "File $i of $($XMLFilesArray.Count)" -PercentComplete (($i/$XMLFilesArray.Count)*100)
@@ -77,4 +125,37 @@ ForEach ($file in $XMLFilesArray){
 
 	$EventData += $ReturnData
 	$i++
+}
+Write-Progress -Activity "Loading XML" -Completed
+
+#Search through the EventLog data
+Write-Progress -Activity "Searching Logon Records" -Status "Please Wait"
+#1. Lookup via Username & LogonType
+If (($Username -ne "") -and ($LogonType -ne 0)){
+	$Results = $EventData | where {($_.ReplacementStrings[5] -like $Username) -and ($_.ReplacementStrings[8] -eq $LogonType) -and ($_.ReplacementStrings[18] -ne "-")}
+	ForEach ($r in $Results){
+		$Out += FormatResults $r
+	}
+	Format-Table -InputObject $Out | Out-String | Write-Host
+	Exit
+}
+
+#2. Lookup via Username
+If ($Username -ne ""){
+	$Results = $EventData | where {($_.ReplacementStrings[5] -like $Username) -and ($_.ReplacementStrings[18] -ne "-")}
+	ForEach ($r in $Results){
+		$Out += FormatResults $r
+	}
+	Format-Table -InputObject $Out | Out-String | Write-Host
+	Exit
+}
+
+#3. Lookup via LogonType
+If ($LogonType -ne 0){
+	$Results = $EventData | where {($_.ReplacementStrings[8] -eq $LogonType)}
+	ForEach ($r in $Results){
+		$Out += FormatResults $r
+	}
+	Format-Table -InputObject $Out | Out-String | Write-Host
+	Exit
 }
