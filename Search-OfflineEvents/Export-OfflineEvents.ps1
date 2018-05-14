@@ -47,7 +47,7 @@ If(((Test-Path $File) -eq $True) -or ((Test-Path "$($File).zip") -eq $True)){
 If ($Failure.IsPresent -eq $True){$EventID += 4625}
 If ($Custom -gt 0){$EventID += $Custom}
 If (($Success.IsPresent -eq $True) -or ($EventID.Count -eq 0)){$EventID += 4624}
-Write-Progress -Activity "Searching Event Log" -Id 0
+Write-Progress -Activity "Exporting Events from log" -Id 0
 $Results = Get-EventLog -LogName Security -InstanceId $EventID -ErrorAction Continue
 
 #Export Results to an XML file
